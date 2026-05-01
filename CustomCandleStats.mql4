@@ -1,0 +1,160 @@
+//+------------------------------------------------------------------+
+//|                                            CustomCandleStats.mq4 |
+//|                                                                  |
+//+------------------------------------------------------------------+
+#property copyright "Antigravity"
+#property link      ""
+#property version   "1.00"
+#property strict
+#property indicator_chart_window
+
+// Входные параметры
+input int CandlesToCalculate = 500; // Количество свечей для подсчета (0 - все)
+
+//+------------------------------------------------------------------+
+//| Custom indicator initialization function                         |
+//+------------------------------------------------------------------+
+int OnInit()
+  {
+   // Создаем графические объекты для каждой строки
+   for(int i=0; i<4; i++)
+     {
+      string obj_name = "CustomCandleStatsLabel" + IntegerToString(i);
+      if(ObjectFind(0, obj_name) < 0)
+        {
+         ObjectCreate(0, obj_name, OBJ_LABEL, 0, 0, 0);
+         ObjectSetInteger(0, obj_name, OBJPROP_CORNER, CORNER_LEFT_LOWER); // В левом нижнем углу
+         ObjectSetInteger(0, obj_name, OBJPROP_XDISTANCE, 10);
+         ObjectSetInteger(0, obj_name, OBJPROP_YDISTANCE, 80 - i*20); // Расстояние снизу: 80, 60, 40, 20
+         ObjectSetString(0, obj_name, OBJPROP_FONT, "Arial");
+         ObjectSetInteger(0, obj_name, OBJPROP_FONTSIZE, 11);
+         ObjectSetInteger(0, obj_name, OBJPROP_COLOR, clrBlue);
+         ObjectSetInteger(0, obj_name, OBJPROP_BACK, false);
+        }
+     }
+     
+   return(INIT_SUCCEEDED);
+  }
+  
+//+------------------------------------------------------------------+
+//| Custom indicator deinitialization function                       |
+//+------------------------------------------------------------------+
+void OnDeinit(const int reason)
+  {
+   // Удаляем объекты при удалении индикатора с графика
+   for(int i=0; i<4; i++)
+     {
+      ObjectDelete(0, "CustomCandleStatsLabel" + IntegerToString(i));
+     }
+  }
+
+//+------------------------------------------------------------------+
+//| Custom indicator iteration function                              |
+//+------------------------------------------------------------------+
+int OnCalculate(const int rates_total,
+                const int prev_calculated,
+                const datetime &time[],
+                const double &open[],
+                const double &high[],
+                const double &low[],
+                const double &close[],
+                const long &tick_volume[],
+                const long &volume[],
+                const int &spread[])
+  {
+   // Проверка на наличие свечей на графике
+   if(rates_total == 0) return 0;
+
+   // Определяем сколько свечей считать
+   int count = CandlesToCalculate;
+   if(count <= 0 || count > rates_total)
+     {
+      count = rates_total;
+     }
+
+   double sum_lower_shadow = 0;
+   double sum_upper_shadow = 0;
+   double sum_body = 0;
+   int valid_candles = 0;
+
+   // В MQL4 удобно использовать предопределенные массивы-таймсерии: Open[], Close[], High[], Low[]
+   // Индекс 0 - текущая формирующаяся (самая правая) свеча на графике. Мы ее пропускаем и начинаем с 1.
+   for(int i = 1; i <= count; i++)
+     {
+      // Защита от выхода за пределы массива
+      if(i >= rates_total) break;
+      double o = Open[i];
+      double c = Close[i];
+      double h = High[i];
+      double l = Low[i];
+
+      double lower_shadow = 0;
+      double upper_shadow = 0;
+      double body = MathAbs(o - c);
+
+      if(o < c) // Бычья свеча (открытие ниже закрытия)
+        {
+         lower_shadow = MathAbs(o - l); // от минимума до открытия
+         upper_shadow = MathAbs(h - c); // от максимума до закрытия
+        }
+      else if(o > c) // Медвежья свеча (открытие выше закрытия)
+        {
+         lower_shadow = MathAbs(h - o); // от максимума до открытия
+         upper_shadow = MathAbs(c - l); // от минимума до закрытия
+        }
+      else // Доджи (открытие равно закрытию)
+        {
+         // Используем логику бычьей (или обычные тени), т.к. открытие = закрытию
+         lower_shadow = MathAbs(o - l);
+         upper_shadow = MathAbs(h - c);
+        }
+
+      sum_lower_shadow += lower_shadow;
+      sum_upper_shadow += upper_shadow;
+      sum_body += body;
+      valid_candles++;
+     }
+
+   // Если подсчитали хотя бы одну свечу
+   if(valid_candles > 0)
+     {
+      double avg_lower = sum_lower_shadow / valid_candles;
+      double avg_upper = sum_upper_shadow / valid_candles;
+      double avg_body = sum_body / valid_candles;
+      
+      // Переводим значения в пункты (Points) для понятного отображения пользователю
+      double point = Point;
+      if(point == 0) point = 0.00001; // Защита от деления на ноль на всякий случай
+      
+      double avg_lower_pts = avg_lower / point;
+      double avg_upper_pts = avg_upper / point;
+      double avg_body_pts = avg_body / point;
+
+      // Формируем текст
+      string t[4];
+      t[0] = StringFormat("Свечей: %d", valid_candles);
+      t[1] = StringFormat("Сред. нижняя тень: %.1f пт", avg_lower_pts);
+      t[2] = StringFormat("Сред. верхняя тень: %.1f пт", avg_upper_pts);
+      t[3] = StringFormat("Сред. тело: %.1f пт", avg_body_pts);
+                                 
+      // Автоматический подбор цвета текста в зависимости от фона графика, чтобы было читаемо
+      color back_color = (color)ChartGetInteger(0, CHART_COLOR_BACKGROUND);
+      color text_color = clrBlack;
+      
+      // Если цвет фона темный (черный или стандартный зеленый на черном), ставим текст белым
+      if(back_color == clrBlack || back_color == C'0,0,0' || back_color == clrGreen || back_color == clrDarkGreen || back_color == clrNavy) 
+        {
+         text_color = clrWhite; 
+        }
+        
+      for(int i=0; i<4; i++)
+        {
+         string obj_name = "CustomCandleStatsLabel" + IntegerToString(i);
+         ObjectSetString(0, obj_name, OBJPROP_TEXT, t[i]);
+         ObjectSetInteger(0, obj_name, OBJPROP_COLOR, text_color);
+        }
+     }
+
+   return(rates_total);
+  }
+//+------------------------------------------------------------------+

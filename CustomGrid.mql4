@@ -1,0 +1,135 @@
+//+------------------------------------------------------------------+
+//|                                                   CustomGrid.mq4 |
+//|                                                                  |
+//+------------------------------------------------------------------+
+#property copyright "Antigravity"
+#property link      ""
+#property version   "1.00"
+#property strict
+#property indicator_chart_window
+
+// Входные параметры
+input int GridStepPoints = 100; // Шаг сетки (в пунктах)
+input color GridColor = clrDimGray; // Цвет линий сетки
+input ENUM_LINE_STYLE GridStyle = STYLE_DOT; // Стиль линий сетки
+input int GridWidth = 1; // Толщина линий сетки
+
+//+------------------------------------------------------------------+
+//| Custom indicator initialization function                         |
+//+------------------------------------------------------------------+
+int OnInit()
+  {
+   // Отключаем стандартную сетку терминала
+   ChartSetInteger(0, CHART_SHOW_GRID, false);
+   
+   // Отрисовываем сетку первый раз
+   UpdateGrid();
+   
+   return(INIT_SUCCEEDED);
+  }
+
+//+------------------------------------------------------------------+
+//| Custom indicator deinitialization function                       |
+//+------------------------------------------------------------------+
+void OnDeinit(const int reason)
+  {
+   // Включаем стандартную сетку обратно при удалении индикатора
+   ChartSetInteger(0, CHART_SHOW_GRID, true);
+   
+   // Удаляем все наши кастомные линии
+   DeleteAllGridLines();
+  }
+
+//+------------------------------------------------------------------+
+//| Утилита для удаления линий сетки                                 |
+//+------------------------------------------------------------------+
+void DeleteAllGridLines()
+  {
+   int obj_total = ObjectsTotal();
+   for(int i = obj_total - 1; i >= 0; i--)
+     {
+      string name = ObjectName(0, i);
+      if(StringFind(name, "CustomGrid_") == 0)
+        {
+         ObjectDelete(0, name);
+        }
+     }
+  }
+
+//+------------------------------------------------------------------+
+//| Функция обновления/добавления линий сетки                        |
+//+------------------------------------------------------------------+
+void UpdateGrid()
+  {
+   if(GridStepPoints <= 0) return;
+   
+   double step_price = GridStepPoints * Point;
+   
+   // Получаем видимый минимум и максимум цены на графике
+   double min_p = ChartGetDouble(0, CHART_PRICE_MIN);
+   double max_p = ChartGetDouble(0, CHART_PRICE_MAX);
+   
+   // Немного расширяем диапазон для плавности при скроллинге
+   min_p -= step_price * 5;
+   max_p += step_price * 5;
+   
+   // Находим ближайший нижний уровень, кратный шагу
+   double first_level = MathFloor(min_p / step_price) * step_price;
+   
+   for(double level = first_level; level <= max_p; level += step_price)
+     {
+      // Используем NormalizeDouble, чтобы избежать проблем с точностью float
+      double norm_level = NormalizeDouble(level, Digits);
+      string obj_name = "CustomGrid_" + DoubleToStr(norm_level, Digits);
+      
+      // Если линии на этом уровне еще нет — создаем ее
+      if(ObjectFind(0, obj_name) < 0)
+        {
+         ObjectCreate(0, obj_name, OBJ_HLINE, 0, 0, norm_level);
+         ObjectSetInteger(0, obj_name, OBJPROP_COLOR, GridColor);
+         ObjectSetInteger(0, obj_name, OBJPROP_STYLE, GridStyle);
+         ObjectSetInteger(0, obj_name, OBJPROP_WIDTH, GridWidth);
+         ObjectSetInteger(0, obj_name, OBJPROP_BACK, true); // Рисуем на заднем фоне
+         ObjectSetInteger(0, obj_name, OBJPROP_SELECTABLE, false); // Запрещаем выделение мышью
+         ObjectSetInteger(0, obj_name, OBJPROP_HIDDEN, true); // Скрываем имя из списка объектов
+         
+         // Убираем всплывающую подсказку (тултип) с описанием линии
+         ObjectSetString(0, obj_name, OBJPROP_TOOLTIP, "\n");
+        }
+     }
+  }
+
+//+------------------------------------------------------------------+
+//| Custom indicator iteration function                              |
+//+------------------------------------------------------------------+
+int OnCalculate(const int rates_total,
+                const int prev_calculated,
+                const datetime &time[],
+                const double &open[],
+                const double &high[],
+                const double &low[],
+                const double &close[],
+                const long &tick_volume[],
+                const long &volume[],
+                const int &spread[])
+  {
+   // Обновляем сетку при поступлении новых тиков (если цена вышла за пределы)
+   UpdateGrid();
+   return(rates_total);
+  }
+
+//+------------------------------------------------------------------+
+//| ChartEvent function                                              |
+//+------------------------------------------------------------------+
+void OnChartEvent(const int id,
+                  const long &lparam,
+                  const double &dparam,
+                  const string &sparam)
+  {
+   // Обновляем сетку при прокрутке и масштабировании графика пользователем
+   if(id == CHARTEVENT_CHART_CHANGE)
+     {
+      UpdateGrid();
+     }
+  }
+//+------------------------------------------------------------------+
